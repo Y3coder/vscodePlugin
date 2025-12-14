@@ -2,6 +2,20 @@
 // Import the module and reference it with the alias vscode in your code below
 const vscode = require("vscode");
 
+/**
+ * 检查文本是否包含 Vue3 的 <script setup> 标签
+ * 支持以下格式:
+ * - <script setup>
+ * - <script setup lang="ts">
+ * - <script lang="ts" setup>
+ * - 其他属性组合
+ * @param {string} text 要检查的文本
+ * @returns {boolean} 是否包含 script setup 标签
+ */
+function isScriptSetup(text) {
+  return /<script[^>]*\bsetup\b[^>]*>/.test(text);
+}
+
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
 
@@ -26,7 +40,7 @@ function activate(context) {
     }
   );
 
-  // 注册 Alt+Enter 命令，自动生成 Vue 变量和方法
+  // 注册 Alt+Enter 命令,自动生成 Vue 变量和方法
   const generateVueCode = vscode.commands.registerCommand(
     "vscodeplugin.generateVueCode",
     async function () {
@@ -57,7 +71,7 @@ function activate(context) {
       // 判断是 Vue2 还是 Vue3
       const isVue3 =
         text.includes("setup()") ||
-        text.includes("<script setup>") ||
+        isScriptSetup(text) ||
         /import\s+{[^}]*ref[^}]*}\s+from\s+['"]vue['"]/.test(text);
 
       // 判断是方法调用还是变量引用
@@ -126,9 +140,9 @@ function activate(context) {
           vscode.window.showInformationMessage(
             appended
               ? `已在 ${baseName} 中追加属性: ${fullPath
-                  .split(".")
-                  .slice(1)
-                  .join(".")}`
+                .split(".")
+                .slice(1)
+                .join(".")}`
               : `变量 ${fullPath} 已存在,已跳转`
           );
         } else {
@@ -467,79 +481,79 @@ async function generateVariable(
   const scriptStartIndex =
     scriptMatch.index + scriptMatch[0].indexOf(scriptContent);
 
-  if (isVue3) {
-    // Vue3 处理
-    if (text.includes("<script setup>")) {
-      // Composition API with <script setup>
-      let insertPosition;
-      const scriptCloseMatch = text.match(/<\/script>/);
-      const varDecl =
-        /(const|let|var)\s+[A-Za-z_$][A-Za-z0-9_$]*\s*=\s*(ref|reactive)\s*\(/g;
-      let m;
-      let lastVarRel = -1;
-      while ((m = varDecl.exec(scriptContent)) !== null) {
-        lastVarRel = m.index;
-      }
-      if (lastVarRel >= 0) {
-        const slice = scriptContent.slice(lastVarRel);
-        const nlRel = slice.indexOf("\n");
-        const abs =
-          nlRel >= 0
-            ? scriptStartIndex + lastVarRel + nlRel + 1
-            : scriptStartIndex + lastVarRel + slice.length;
-        insertPosition = document.positionAt(abs);
-      } else {
-        const r1 =
-          /const\s+[A-Za-z_$][A-Za-z0-9_$]*\s*=\s*\([^)]*\)\s*=>\s*\{/g;
-        const r2 = /function\s+[A-Za-z_$][A-Za-z0-9_$]*\s*\(/g;
-        let firstMethodRel = -1;
-        let mm;
-        if ((mm = r1.exec(scriptContent)) !== null) firstMethodRel = mm.index;
-        if ((mm = r2.exec(scriptContent)) !== null) {
-          if (firstMethodRel === -1 || mm.index < firstMethodRel)
-            firstMethodRel = mm.index;
+    if (isVue3) {
+      // Vue3 处理
+      if (isScriptSetup(text)) {
+        // Composition API with <script setup>
+        let insertPosition;
+        const scriptCloseMatch = text.match(/<\/script>/);
+        const varDecl =
+          /(const|let|var)\s+[A-Za-z_$][A-Za-z0-9_$]*\s*=\s*(ref|reactive)\s*\(/g;
+        let m;
+        let lastVarRel = -1;
+        while ((m = varDecl.exec(scriptContent)) !== null) {
+          lastVarRel = m.index;
         }
-        if (firstMethodRel >= 0) {
-          insertPosition = document.positionAt(
-            scriptStartIndex + firstMethodRel
-          );
+        if (lastVarRel >= 0) {
+          const slice = scriptContent.slice(lastVarRel);
+          const nlRel = slice.indexOf("\n");
+          const abs =
+            nlRel >= 0
+              ? scriptStartIndex + lastVarRel + nlRel + 1
+              : scriptStartIndex + lastVarRel + slice.length;
+          insertPosition = document.positionAt(abs);
         } else {
-          insertPosition = document.positionAt(scriptCloseMatch.index);
+          const r1 =
+            /const\s+[A-Za-z_$][A-Za-z0-9_$]*\s*=\s*\([^)]*\)\s*=>\s*\{/g;
+          const r2 = /function\s+[A-Za-z_$][A-Za-z0-9_$]*\s*\(/g;
+          let firstMethodRel = -1;
+          let mm;
+          if ((mm = r1.exec(scriptContent)) !== null) firstMethodRel = mm.index;
+          if ((mm = r2.exec(scriptContent)) !== null) {
+            if (firstMethodRel === -1 || mm.index < firstMethodRel)
+              firstMethodRel = mm.index;
+          }
+          if (firstMethodRel >= 0) {
+            insertPosition = document.positionAt(
+              scriptStartIndex + firstMethodRel
+            );
+          } else {
+            insertPosition = document.positionAt(scriptCloseMatch.index);
+          }
         }
-      }
 
-      // 插入变量声明 (支持多层结构)
-      const varCode = generateVariableCode(fullPath, baseName, isVue3);
-      const edit = new vscode.WorkspaceEdit();
-      edit.insert(document.uri, insertPosition, varCode.vue3Setup);
-      await vscode.workspace.applyEdit(edit);
-      vscode.window.showInformationMessage(`已生成 Vue3 变量: ${fullPath}`);
-    } else {
-      // Composition API with setup()：变量插入到 return 之前（末尾追加）
-      const setupMatch = scriptContent.match(
-        /setup\s*\([^)]*\)\s*{[\s\S]*?return\s*{/
-      );
-      if (setupMatch) {
-        const returnIndex =
-          scriptStartIndex +
-          setupMatch.index +
-          setupMatch[0].length -
-          "return {".length;
-        const returnPosition = document.positionAt(returnIndex);
-
+        // 插入变量声明 (支持多层结构)
         const varCode = generateVariableCode(fullPath, baseName, isVue3);
         const edit = new vscode.WorkspaceEdit();
-        edit.insert(document.uri, returnPosition, `\n${varCode.vue3Setup}`);
+        edit.insert(document.uri, insertPosition, varCode.vue3Setup);
         await vscode.workspace.applyEdit(edit);
-        await ensureSetupReturnHasName(
-          document,
-          scriptContent,
-          scriptStartIndex,
-          baseName
-        );
         vscode.window.showInformationMessage(`已生成 Vue3 变量: ${fullPath}`);
+      } else {
+        // Composition API with setup():变量插入到 return 之前(末尾追加)
+        const setupMatch = scriptContent.match(
+          /setup\s*\([^)]*\)\s*{[\s\S]*?return\s*{/
+        );
+        if (setupMatch) {
+          const returnIndex =
+            scriptStartIndex +
+            setupMatch.index +
+            setupMatch[0].length -
+            "return {".length;
+          const returnPosition = document.positionAt(returnIndex);
+
+          const varCode = generateVariableCode(fullPath, baseName, isVue3);
+          const edit = new vscode.WorkspaceEdit();
+          edit.insert(document.uri, returnPosition, `\n${varCode.vue3Setup}`);
+          await vscode.workspace.applyEdit(edit);
+          await ensureSetupReturnHasName(
+            document,
+            scriptContent,
+            scriptStartIndex,
+            baseName
+          );
+          vscode.window.showInformationMessage(`已生成 Vue3 变量: ${fullPath}`);
+        }
       }
-    }
   } else {
     // Vue2 Options API
     const dataMatch = scriptContent.match(/data\s*\(\)\s*{\s*return\s*{/);
@@ -570,7 +584,7 @@ async function generateVariable(
       }
       vscode.window.showInformationMessage(`已生成 Vue2 变量: ${fullPath}`);
     } else {
-      // 没有 data 函数，创建一个
+      // 没有 data 函数,创建一个
       const exportMatch = scriptContent.match(/export\s+default\s*{/);
       if (exportMatch) {
         const exportStartIndex =
@@ -672,7 +686,7 @@ async function generateMethod(
 
   if (isVue3) {
     // Vue3 处理
-    if (text.includes("<script setup>")) {
+    if (isScriptSetup(text)) {
       // Composition API with <script setup>
       const scriptEndMatch = text.match(/<\/script>/);
       const scriptEndIndex = scriptEndMatch.index;
@@ -746,7 +760,7 @@ async function generateMethod(
         vscode.window.showInformationMessage(`已生成 Vue2 方法: ${methodName}`);
       }
     } else {
-      // 没有 methods 对象，创建一个
+      // 没有 methods 对象,创建一个
       const exportMatch = scriptContent.match(/export\s+default\s*{/);
       if (exportMatch) {
         const exportStartIndex =
@@ -1390,7 +1404,7 @@ async function appendNestedPropertyIfNeeded(
 }
 
 // This method is called when your extension is deactivated
-function deactivate() {}
+function deactivate() { }
 
 module.exports = {
   activate,
